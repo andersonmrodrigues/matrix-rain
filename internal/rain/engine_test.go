@@ -135,3 +135,30 @@ func TestInvariants(t *testing.T) {
 		}
 	}
 }
+
+func TestKatakanaGlyphs(t *testing.T) {
+	if len(Katakana) != 0xff9d-0xff66+1 {
+		t.Fatalf("%d katakana glyphs", len(Katakana))
+	}
+	e := New(30, 15, seeded(5))
+	e.SetGlyphs(Katakana)
+	heads := 0
+	for i := 0; i < 100; i++ {
+		e.Tick()
+		for y := 0; y < 15; y++ {
+			for x := 0; x < 30; x++ {
+				c := e.At(x, y)
+				if c.Kind == Blank {
+					continue
+				}
+				heads++
+				if c.Ch < 0xff66 || c.Ch > 0xff9d {
+					t.Fatalf("glyph %U outside U+FF66..U+FF9D", c.Ch)
+				}
+			}
+		}
+	}
+	if heads == 0 {
+		t.Error("no glyphs drawn")
+	}
+}

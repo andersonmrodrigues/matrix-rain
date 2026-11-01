@@ -44,6 +44,10 @@ func Run(cfg config.Config, in, out *os.File) int {
 	}
 	eng := rain.New(w, h, rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0)))
 
+	if cfg.Katakana {
+		eng.SetGlyphs(rain.Katakana)
+	}
+
 	if panicHook != nil {
 		panicHook()
 	}
@@ -73,7 +77,7 @@ func Run(cfg config.Config, in, out *os.File) int {
 			}
 		case <-frame:
 			eng.Tick()
-			if err := render.Frame(out, eng, trail); err != nil {
+			if err := render.Frame(out, eng, trail, cfg.Rainbow); err != nil {
 				fmt.Fprintln(os.Stderr, "ccmatrix:", err)
 				return 1
 			}

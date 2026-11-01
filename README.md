@@ -13,16 +13,20 @@ go install github.com/andersonmrodrigues/matrix-rain/cmd/ccmatrix@latest
 
 ```
 go build ./cmd/ccmatrix
-./ccmatrix [-u 0-10] [-C colour]
+./ccmatrix [-u 0-10] [-C colour] [-r] [-c]
 ```
 
 | Flag | Meaning |
 | --- | --- |
 | `-u N` | update speed, an integer from 0 to 10 (default 4). The delay between frames is `N x 10ms`, so `0` is fastest (no deliberate sleep) and `10` is 100ms |
 | `-C colour` | trail colour: `green` (default), `red`, `blue`, `white`, `yellow`, `cyan`, `magenta` or `black`. The head always stays white |
+| `-r` | rainbow: trail cells cycle through red, yellow, green, cyan, blue, magenta and white by position; heads stay white. `-r` overrides `-C` (an invalid `-C` value is still rejected) |
+| `-c` | draw half-width katakana (U+FF66..U+FF9D) instead of ASCII. Combines with the other flags, e.g. `-c -C cyan -u 2` |
 
 Invalid values (`-u 11`, `-u fast`, `-C purple`) print an error to stderr, exit with code 2 and write nothing to the
 terminal: flags are validated before the terminal is set up. `-C purple` lists the supported colours.
+
+Katakana alignment depends on the font: with a font that draws these glyphs wider than one cell, columns can look uneven or overlap. Check it in your terminal font.
 
 A `black` trail is invisible on a black or dark background; only the white heads show.
 
@@ -38,7 +42,7 @@ Full-screen falling text: a white head followed by a short green trail, every co
 `SIGINT` and `SIGTERM` also quit (exit codes 130 and 143). On every exit path, including a panic, the terminal is
 restored before the process exits: termios, cursor visible, colours reset, alternate screen left.
 
-Status: step 2 of the plan. The flags `-r`, `-c`, `-s` and live resize handling come in later steps.
+Status: step 3 of the plan. The flag `-s` and live resize handling come in later steps.
 
 ## Development
 

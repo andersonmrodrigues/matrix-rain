@@ -36,7 +36,7 @@ func TestFrameInBounds(t *testing.T) {
 				e.Tick()
 			}
 			var buf bytes.Buffer
-			if err := Frame(&buf, e, colourCodes["green"]); err != nil {
+			if err := Frame(&buf, e, colourCodes["green"], false); err != nil {
 				t.Fatal(err)
 			}
 			out := buf.String()
@@ -76,7 +76,7 @@ func TestFrameColours(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		e.Tick()
 		var buf bytes.Buffer
-		if err := Frame(&buf, e, colourCodes["green"]); err != nil {
+		if err := Frame(&buf, e, colourCodes["green"], false); err != nil {
 			t.Fatal(err)
 		}
 		heads := strings.Count(buf.String(), white)
@@ -124,7 +124,7 @@ func TestFrameTrailColour(t *testing.T) {
 			var buf bytes.Buffer
 			for i := 0; i < 40; i++ {
 				e.Tick()
-				if err := Frame(&buf, e, code); err != nil {
+				if err := Frame(&buf, e, code, false); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -139,5 +139,74 @@ func TestFrameTrailColour(t *testing.T) {
 				t.Error("default green leaked into trail")
 			}
 		})
+	}
+}
+
+func TestFrameKatakanaInBounds(t *testing.T) {
+	tests := []struct{ w, h int }{{80, 24}, {1, 1}, {7, 30}}
+	for _, tt := range tests {
+		e := rain.New(tt.w, tt.h, rand.New(rand.NewPCG(9, 9)))
+		e.SetGlyphs(rain.Katakana)
+		for i := 0; i < 80; i++ {
+			e.Tick()
+		}
+		var buf bytes.Buffer
+		if err := Frame(&buf, e, colourCodes["green"], false); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		moves := cup.FindAllStringSubmatchIndex(out, -1)
+		if len(moves) != tt.h {
+			t.Fatalf("%dx%d: %d cursor moves, want %d", tt.w, tt.h, len(moves), tt.h)
+		}
+		for i, m := range moves {
+			row, _ := strconv.Atoi(out[m[2]:m[3]])
+			col, _ := strconv.Atoi(out[m[4]:m[5]])
+			if row != i+1 || col != 1 {
+				t.Errorf("cursor move to %d;%d outside %dx%d", row, col, tt.w, tt.h)
+			}
+			end := len(out)
+			if i+1 < len(moves) {
+				end = moves[i+1][0]
+			}
+			text := csi.ReplaceAllString(out[m[1]:end], "")
+			if n := len([]rune(text)); n != tt.w {
+				t.Errorf("row %d has %d cells, want %d", row, n, tt.w)
+			}
+			for _, r := range text {
+				if r != ' ' && (r < 0xff66 || r > 0xff9d) {
+					t.Errorf("glyph %U outside U+FF66..U+FF9D", r)
+				}
+			}
+		}
+	}
+}
+
+func TestFrameRainbow(t *testing.T) {
+	render := func(seed uint64) string {
+		e := rain.New(20, 12, rand.New(rand.NewPCG(seed, 1)))
+		var buf bytes.Buffer
+		for i := 0; i < 60; i++ {
+			e.Tick()
+			if err := Frame(&buf, e, colourCodes["red"], true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return buf.String()
+	}
+	out := render(4)
+	if out != render(4) {
+		t.Error("same seed produced different rainbow output")
+	}
+	for _, name := range rainbow {
+		if !strings.Contains(out, colourCodes[name]) {
+			t.Errorf("rainbow never uses %s", name)
+		}
+	}
+	if !strings.Contains(out, white) {
+		t.Error("no white head")
+	}
+	if strings.Contains(out, colourCodes["black"]) {
+		t.Error("black leaked into rainbow")
 	}
 }
