@@ -29,6 +29,10 @@ var colourCodes = map[string]string{
 	"white":   "\x1b[37m",
 }
 
+// rainbow is the cycle for -r: every supported colour except black, which is
+// invisible on dark backgrounds.
+var rainbow = []string{"red", "yellow", "green", "cyan", "blue", "magenta", "white"}
+
 // Colour returns the escape sequence for a trail colour name.
 func Colour(name string) (string, bool) {
 	code, ok := colourCodes[name]
@@ -37,8 +41,10 @@ func Colour(name string) (string, bool) {
 
 // Frame draws the whole grid: each row is positioned with an absolute cursor
 // move and holds exactly width characters, so nothing lands out of bounds. The
-// head is always white; trail is the escape sequence for the trail colour.
-func Frame(out io.Writer, e *rain.Engine, trail string) error {
+// head is always white; trail is the escape sequence for the trail colour. With
+// multi set, trail cells instead cycle through the rainbow by position and trail
+// is ignored.
+func Frame(out io.Writer, e *rain.Engine, trail string, multi bool) error {
 	w, h := e.Size()
 	var buf bytes.Buffer
 	for y := 0; y < h; y++ {
@@ -47,7 +53,10 @@ func Frame(out io.Writer, e *rain.Engine, trail string) error {
 		buf.WriteString(reset)
 		for x := 0; x < w; x++ {
 			c := e.At(x, y)
-			if c.Kind != cur {
+			if multi && c.Kind == rain.Trail {
+				buf.WriteString(colourCodes[rainbow[(x+y)%len(rainbow)]])
+				cur = rain.Trail
+			} else if c.Kind != cur {
 				switch c.Kind {
 				case rain.Head:
 					buf.WriteString(white)

@@ -25,6 +25,10 @@ type Config struct {
 	Speed int
 	// Colour is the trail colour name, one of render.ColourNames.
 	Colour string
+	// Rainbow is -r: multicolour trails, overriding Colour.
+	Rainbow bool
+	// Katakana is -c: half-width katakana instead of ASCII.
+	Katakana bool
 }
 
 // Delay maps a speed to the pause between two frames: speed x 10ms, so 0 means
@@ -38,6 +42,8 @@ func Parse(args []string, out io.Writer) (Config, error) {
 	fs.SetOutput(out)
 	speed := fs.Int("u", DefaultSpeed, "update delay `0-10` in 10ms steps, 0 is fastest")
 	colour := fs.String("C", "green", "trail `colour`: "+strings.Join(render.ColourNames, ", "))
+	rainbow := fs.Bool("r", false, "rainbow trails; overrides -C")
+	katakana := fs.Bool("c", false, "use half-width katakana instead of ASCII")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
@@ -54,5 +60,5 @@ func Parse(args []string, out io.Writer) (Config, error) {
 		fmt.Fprintln(out, err)
 		return Config{}, err
 	}
-	return Config{Speed: *speed, Colour: *colour}, nil
+	return Config{Speed: *speed, Colour: *colour, Rainbow: *rainbow, Katakana: *katakana}, nil
 }

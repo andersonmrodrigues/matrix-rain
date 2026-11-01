@@ -24,7 +24,16 @@ const (
 	maxSpeed = 4 // a column moves one row every 1..maxSpeed ticks
 )
 
-const glyphs = "abcdefghijklmnopqrstuvwxyz0123456789@#$%&*+=<>?"
+var glyphs = []rune("abcdefghijklmnopqrstuvwxyz0123456789@#$%&*+=<>?")
+
+// Katakana is the half-width katakana range U+FF66..U+FF9D, one cell wide each.
+var Katakana = func() []rune {
+	var r []rune
+	for c := '\uff66'; c <= '\uff9d'; c++ {
+		r = append(r, c)
+	}
+	return r
+}()
 
 type column struct {
 	head  int // row of the head; negative while still above the screen
@@ -35,10 +44,11 @@ type column struct {
 
 // Engine is a grid of falling columns driven by an injected RNG.
 type Engine struct {
-	w, h  int
-	rng   *rand.Rand
-	cols  []column
-	cells []Cell
+	w, h   int
+	glyphs []rune
+	rng    *rand.Rand
+	cols   []column
+	cells  []Cell
 }
 
 // New builds an engine of w columns by h rows. Every column gets its own
@@ -50,7 +60,7 @@ func New(w, h int, rng *rand.Rand) *Engine {
 	if h < 0 {
 		h = 0
 	}
-	e := &Engine{w: w, h: h, rng: rng, cols: make([]column, w), cells: make([]Cell, w*h)}
+	e := &Engine{w: w, h: h, glyphs: glyphs, rng: rng, cols: make([]column, w), cells: make([]Cell, w*h)}
 	for x := range e.cols {
 		e.cols[x] = e.newColumn()
 		// Spread starts over the screen height so columns do not move in lockstep.
@@ -58,6 +68,10 @@ func New(w, h int, rng *rand.Rand) *Engine {
 	}
 	return e
 }
+
+// SetGlyphs replaces the characters heads are drawn from. It does not change
+// how many random numbers a tick uses.
+func (e *Engine) SetGlyphs(g []rune) { e.glyphs = g }
 
 // Size returns the grid width and height.
 func (e *Engine) Size() (w, h int) { return e.w, e.h }
@@ -96,12 +110,11 @@ func (e *Engine) Tick() {
 		}
 		c.ticks = 0
 		c.head++
-		if c.head-1 >= 0 && c.head-1 < e.h {
-			old := e.At(x, c.head-1)
+		if old := e.At(x, c.head-1); old.Kind == Head {
 			e.set(x, c.head-1, Cell{Ch: old.Ch, Kind: Trail})
 		}
 		if c.head >= 0 && c.head < e.h {
-			e.set(x, c.head, Cell{Ch: rune(glyphs[e.rng.IntN(len(glyphs))]), Kind: Head})
+			e.set(x, c.head, Cell{Ch: e.glyphs[e.rng.IntN(len(e.glyphs))], Kind: Head})
 		}
 		e.set(x, c.head-c.trail-1, Cell{})
 		if c.head-c.trail >= e.h {
