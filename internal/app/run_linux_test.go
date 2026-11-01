@@ -25,6 +25,9 @@ func TestHelperProcess(t *testing.T) {
 	if os.Getenv("CCMATRIX_HELPER") != "1" {
 		t.Skip("helper for the pty tests")
 	}
+	if os.Getenv("CCMATRIX_HELPER_PANIC") == "1" {
+		panicHook = func() { panic("helper panic") }
+	}
 	cfg, _ := config.Parse(nil, os.Stderr)
 	os.Exit(Run(cfg, os.Stdin, os.Stdout))
 }
@@ -56,6 +59,7 @@ type session struct {
 	out    *syncBuf
 	read   chan struct{} // closed when the master reaches EOF/EIO
 	exited chan error
+	before *unix.Termios // termios before the helper starts
 	after  *unix.Termios // termios right after exit, before the slave closes
 }
 
@@ -126,6 +130,7 @@ func start(t *testing.T, stdout *os.File, env ...string) *session {
 			}
 		}
 	}()
+	s.before = s.termios()
 	if err := s.cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -178,12 +183,12 @@ func TestRestoredOnExit(t *testing.T) {
 		{"ctrl-c byte", func(s *session) { s.master.WriteString("\x03") }, nil, 130},
 		{"SIGINT", func(s *session) { s.cmd.Process.Signal(syscall.SIGINT) }, nil, 130},
 		{"SIGTERM", func(s *session) { s.cmd.Process.Signal(syscall.SIGTERM) }, nil, 143},
-		{"panic", func(s *session) {}, []string{"CCMATRIX_TEST_PANIC=1"}, 2},
+		{"panic", func(s *session) {}, []string{"CCMATRIX_HELPER_PANIC=1"}, 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := start(t, nil, tc.env...)
-			before := s.termios()
+			before := s.before
 			if before.Lflag&(unix.ECHO|unix.ICANON) != unix.ECHO|unix.ICANON {
 				t.Fatalf("pty starts without ECHO/ICANON: %#x", before.Lflag)
 			}
@@ -238,7 +243,7 @@ func TestStdoutNotTerminal(t *testing.T) {
 	defer w.Close()
 
 	s := start(t, w)
-	before := s.termios()
+	before := s.before
 	if code := s.wait(); code != 1 {
 		t.Errorf("exit code %d, want 1 (clean error)", code)
 	}

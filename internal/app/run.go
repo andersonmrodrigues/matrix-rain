@@ -15,6 +15,9 @@ import (
 	"github.com/andersonmrodrigues/matrix-rain/internal/terminal"
 )
 
+// panicHook is set only by tests, to prove Restore runs when Run panics.
+var panicHook func()
+
 // Run draws the rain until q, SIGINT or SIGTERM and returns the exit code.
 // The terminal is restored before it returns, also when a panic unwinds it, so
 // the caller can call os.Exit right after.
@@ -41,8 +44,8 @@ func Run(cfg config.Config, in, out *os.File) int {
 	}
 	eng := rain.New(w, h, rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0)))
 
-	if os.Getenv("CCMATRIX_TEST_PANIC") != "" { // test hook: proves Restore runs on panic
-		panic("CCMATRIX_TEST_PANIC")
+	if panicHook != nil {
+		panicHook()
 	}
 
 	keys := sess.Keys()
