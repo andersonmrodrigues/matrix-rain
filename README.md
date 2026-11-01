@@ -15,7 +15,7 @@ Full-screen falling text: a white head followed by a short green trail, every co
 | Key | Action |
 | --- | --- |
 | `q` | quit |
-| `Ctrl-C` | quit (exit code 130) |
+| `Ctrl-C` | quit like `SIGINT` (exit code 130); raw mode disables the tty's own signal, so the `0x03` byte is handled by the app |
 | anything else | ignored |
 
 `SIGINT` and `SIGTERM` also quit (exit codes 130 and 143). On every exit path, including a panic, the terminal is
@@ -36,5 +36,5 @@ go build ./cmd/ccmatrix
 
 | Terminal | Result |
 | --- | --- |
-| Pseudo-terminal (Python `pty`, 80x24, Linux): `q`, `SIGINT`, `SIGTERM`, `Ctrl-C` exit and restore | OK |
-| xterm, GNOME Terminal, Kitty, Alacritty, iTerm2, Windows Terminal (WSL) | not yet checked by hand |
+| Linux pseudo-terminal (80x24), automated in `internal/app/run_linux_test.go`: `q`, `Ctrl-C` byte, `SIGINT`, `SIGTERM` and a forced panic restore termios (incl. `ECHO`, `ICANON`) and emit the cleanup sequence; `a`/`x` are ignored; non-tty stdout fails with an error | OK (`go test`) |
+| xterm, GNOME Terminal, Kitty, Alacritty, iTerm2, Windows Terminal (WSL) | not checked by hand; the pty test does not emulate a terminal's rendering |

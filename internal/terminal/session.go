@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
 	"golang.org/x/term"
 )
@@ -27,11 +29,17 @@ type Session struct {
 }
 
 // Open puts in into raw mode and switches out to the alternate screen with a
-// hidden cursor. It fails if in is not a terminal.
+// hidden cursor. It fails if in or out is not a terminal.
 func Open(in, out *os.File) (*Session, error) {
+	// A broken-pipe stdout would otherwise kill the process on SIGPIPE with
+	// termios unrestored; ignored, the write fails with EPIPE instead.
+	signal.Ignore(syscall.SIGPIPE)
 	fd := int(in.Fd())
 	if !term.IsTerminal(fd) {
 		return nil, errors.New("stdin is not a terminal")
+	}
+	if !term.IsTerminal(int(out.Fd())) {
+		return nil, errors.New("stdout is not a terminal")
 	}
 	old, err := term.MakeRaw(fd)
 	if err != nil {

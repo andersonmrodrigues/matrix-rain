@@ -19,6 +19,13 @@ import (
 // The terminal is restored before it returns, also when a panic unwinds it, so
 // the caller can call os.Exit right after.
 func Run(cfg config.Config, in, out *os.File) int {
+	// Registered before the terminal is touched and stopped only after
+	// Restore (defers run last-in first-out), so a signal that arrives while
+	// the session is opening is queued instead of killing the process raw.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+
 	sess, err := terminal.Open(in, out)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ccmatrix:", err)
@@ -34,9 +41,9 @@ func Run(cfg config.Config, in, out *os.File) int {
 	}
 	eng := rain.New(w, h, rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0)))
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigs)
+	if os.Getenv("CCMATRIX_TEST_PANIC") != "" { // test hook: proves Restore runs on panic
+		panic("CCMATRIX_TEST_PANIC")
+	}
 
 	keys := sess.Keys()
 	tick := time.NewTicker(cfg.Frame)
