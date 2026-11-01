@@ -36,7 +36,7 @@ func TestFrameInBounds(t *testing.T) {
 				e.Tick()
 			}
 			var buf bytes.Buffer
-			if err := Frame(&buf, e); err != nil {
+			if err := Frame(&buf, e, colourCodes["green"]); err != nil {
 				t.Fatal(err)
 			}
 			out := buf.String()
@@ -76,12 +76,68 @@ func TestFrameColours(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		e.Tick()
 		var buf bytes.Buffer
-		if err := Frame(&buf, e); err != nil {
+		if err := Frame(&buf, e, colourCodes["green"]); err != nil {
 			t.Fatal(err)
 		}
 		heads := strings.Count(buf.String(), white)
 		if heads > 1 {
 			t.Fatalf("tick %d: %d white heads in one column", i, heads)
 		}
+	}
+}
+
+func TestColour(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+		ok   bool
+	}{
+		{"green", "\x1b[32m", true},
+		{"red", "\x1b[31m", true},
+		{"blue", "\x1b[34m", true},
+		{"white", "\x1b[37m", true},
+		{"yellow", "\x1b[33m", true},
+		{"cyan", "\x1b[36m", true},
+		{"magenta", "\x1b[35m", true},
+		{"black", "\x1b[30m", true},
+		{"purple", "", false},
+		{"", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := Colour(tt.name)
+			if got != tt.want || ok != tt.ok {
+				t.Errorf("Colour(%q) = %q, %v", tt.name, got, ok)
+			}
+		})
+	}
+	if len(ColourNames) != len(colourCodes) {
+		t.Errorf("%d names, %d codes", len(ColourNames), len(colourCodes))
+	}
+}
+
+func TestFrameTrailColour(t *testing.T) {
+	for _, name := range ColourNames {
+		t.Run(name, func(t *testing.T) {
+			code, _ := Colour(name)
+			e := rain.New(1, 10, rand.New(rand.NewPCG(1, 1)))
+			var buf bytes.Buffer
+			for i := 0; i < 40; i++ {
+				e.Tick()
+				if err := Frame(&buf, e, code); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out := buf.String()
+			if !strings.Contains(out, code) {
+				t.Errorf("no trail cell uses %q", code)
+			}
+			if !strings.Contains(out, white) {
+				t.Error("no white head")
+			}
+			if strings.Contains(out, "\x1b[32m") && name != "green" {
+				t.Error("default green leaked into trail")
+			}
+		})
 	}
 }

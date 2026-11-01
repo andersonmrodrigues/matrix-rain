@@ -48,9 +48,12 @@ func Run(cfg config.Config, in, out *os.File) int {
 		panicHook()
 	}
 
+	trail, _ := render.Colour(cfg.Colour)
+	speed := cfg.Speed
 	keys := sess.Keys()
-	tick := time.NewTicker(cfg.Frame)
-	defer tick.Stop()
+	// A timer per frame instead of a ticker, so speed 0 has no sleep and a
+	// speed key applies from the next frame.
+	frame := time.After(config.Delay(speed))
 
 	for {
 		select {
@@ -60,18 +63,36 @@ func Run(cfg config.Config, in, out *os.File) int {
 			}
 			return 143
 		case k, ok := <-keys:
-			if !ok || k == 'q' {
+			if !ok {
 				return 0
 			}
-			if k == 0x03 { // Ctrl-C: raw mode turns off ISIG, so it arrives as a byte
-				return 130
+			var exit bool
+			var code int
+			if speed, exit, code = handleKey(k, speed); exit {
+				return code
 			}
-		case <-tick.C:
+		case <-frame:
 			eng.Tick()
-			if err := render.Frame(out, eng); err != nil {
+			if err := render.Frame(out, eng, trail); err != nil {
 				fmt.Fprintln(os.Stderr, "ccmatrix:", err)
 				return 1
 			}
+			frame = time.After(config.Delay(speed))
 		}
 	}
+}
+
+// handleKey applies one key byte: a digit sets the speed, q exits 0, Ctrl-C
+// exits 130 (raw mode turns off ISIG, so it arrives as a byte) and any other
+// byte changes nothing.
+func handleKey(k byte, speed int) (newSpeed int, exit bool, code int) {
+	switch {
+	case k == 'q':
+		return speed, true, 0
+	case k == 0x03:
+		return speed, true, 130
+	case k >= '0' && k <= '9':
+		return int(k - '0'), false, 0
+	}
+	return speed, false, 0
 }
