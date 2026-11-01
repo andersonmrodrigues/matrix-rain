@@ -63,14 +63,13 @@ func Run(cfg config.Config, in, out *os.File) int {
 			}
 			return 143
 		case k, ok := <-keys:
-			if !ok || k == 'q' {
+			if !ok {
 				return 0
 			}
-			if k == 0x03 { // Ctrl-C: raw mode turns off ISIG, so it arrives as a byte
-				return 130
-			}
-			if k >= '0' && k <= '9' {
-				speed = int(k - '0')
+			var exit bool
+			var code int
+			if speed, exit, code = handleKey(k, speed); exit {
+				return code
 			}
 		case <-frame:
 			eng.Tick()
@@ -81,4 +80,19 @@ func Run(cfg config.Config, in, out *os.File) int {
 			frame = time.After(config.Delay(speed))
 		}
 	}
+}
+
+// handleKey applies one key byte: a digit sets the speed, q exits 0, Ctrl-C
+// exits 130 (raw mode turns off ISIG, so it arrives as a byte) and any other
+// byte changes nothing.
+func handleKey(k byte, speed int) (newSpeed int, exit bool, code int) {
+	switch {
+	case k == 'q':
+		return speed, true, 0
+	case k == 0x03:
+		return speed, true, 130
+	case k >= '0' && k <= '9':
+		return int(k - '0'), false, 0
+	}
+	return speed, false, 0
 }
