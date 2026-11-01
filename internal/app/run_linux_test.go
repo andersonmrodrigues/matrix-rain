@@ -220,6 +220,7 @@ func TestOtherKeysIgnored(t *testing.T) {
 	s := start(t, nil)
 	s.waitFor(enterAlt)
 	s.master.WriteString("ax")
+	s.master.WriteString("0159") // speed keys change speed, never exit
 	select {
 	case <-s.exited:
 		t.Fatal("process exited on a / x")

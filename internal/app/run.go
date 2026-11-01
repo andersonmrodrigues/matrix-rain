@@ -48,9 +48,12 @@ func Run(cfg config.Config, in, out *os.File) int {
 		panicHook()
 	}
 
+	trail, _ := render.Colour(cfg.Colour)
+	speed := cfg.Speed
 	keys := sess.Keys()
-	tick := time.NewTicker(cfg.Frame)
-	defer tick.Stop()
+	// A timer per frame instead of a ticker, so speed 0 has no sleep and a
+	// speed key applies from the next frame.
+	frame := time.After(config.Delay(speed))
 
 	for {
 		select {
@@ -66,12 +69,16 @@ func Run(cfg config.Config, in, out *os.File) int {
 			if k == 0x03 { // Ctrl-C: raw mode turns off ISIG, so it arrives as a byte
 				return 130
 			}
-		case <-tick.C:
+			if k >= '0' && k <= '9' {
+				speed = int(k - '0')
+			}
+		case <-frame:
 			eng.Tick()
-			if err := render.Frame(out, eng); err != nil {
+			if err := render.Frame(out, eng, trail); err != nil {
 				fmt.Fprintln(os.Stderr, "ccmatrix:", err)
 				return 1
 			}
+			frame = time.After(config.Delay(speed))
 		}
 	}
 }
