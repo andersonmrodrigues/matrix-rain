@@ -54,19 +54,22 @@ type Engine struct {
 // New builds an engine of w columns by h rows. Every column gets its own
 // random start, speed and trail length.
 func New(w, h int, rng *rand.Rand) *Engine {
-	if w < 0 {
-		w = 0
-	}
-	if h < 0 {
-		h = 0
-	}
-	e := &Engine{w: w, h: h, glyphs: glyphs, rng: rng, cols: make([]column, w), cells: make([]Cell, w*h)}
+	e := &Engine{glyphs: glyphs, rng: rng}
+	e.Resize(w, h)
+	return e
+}
+
+// Resize rebuilds the grid as w by h: the screen is blank and every column
+// gets a fresh random start. Negative sizes count as 0.
+func (e *Engine) Resize(w, h int) {
+	e.w, e.h = max(w, 0), max(h, 0)
+	e.cols = make([]column, e.w)
+	e.cells = make([]Cell, e.w*e.h)
 	for x := range e.cols {
 		e.cols[x] = e.newColumn()
 		// Spread starts over the screen height so columns do not move in lockstep.
-		e.cols[x].head = -e.rng.IntN(max(h, 1))
+		e.cols[x].head = -e.rng.IntN(max(e.h, 1))
 	}
-	return e
 }
 
 // SetGlyphs replaces the characters heads are drawn from. It does not change

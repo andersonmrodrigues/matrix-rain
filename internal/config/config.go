@@ -21,6 +21,8 @@ const (
 
 // Config holds the validated runtime settings.
 type Config struct {
+	// Screensaver is -s: any key or mouse event exits.
+	Screensaver bool
 	// Speed is the -u value, 0 (fastest) to MaxSpeed.
 	Speed int
 	// Colour is the trail colour name, one of render.ColourNames.
@@ -40,6 +42,7 @@ func Delay(speed int) time.Duration { return time.Duration(speed) * speedStep }
 func Parse(args []string, out io.Writer) (Config, error) {
 	fs := flag.NewFlagSet("ccmatrix", flag.ContinueOnError)
 	fs.SetOutput(out)
+	screensaver := fs.Bool("s", false, "screensaver mode: exit on any key or mouse event")
 	speed := fs.Int("u", DefaultSpeed, "update delay `0-10` in 10ms steps, 0 is fastest")
 	colour := fs.String("C", "green", "trail `colour`: "+strings.Join(render.ColourNames, ", "))
 	rainbow := fs.Bool("r", false, "rainbow trails; overrides -C")
@@ -60,5 +63,5 @@ func Parse(args []string, out io.Writer) (Config, error) {
 		fmt.Fprintln(out, err)
 		return Config{}, err
 	}
-	return Config{Speed: *speed, Colour: *colour, Rainbow: *rainbow, Katakana: *katakana}, nil
+	return Config{Screensaver: *screensaver, Speed: *speed, Colour: *colour, Rainbow: *rainbow, Katakana: *katakana}, nil
 }

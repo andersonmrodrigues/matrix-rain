@@ -3,6 +3,7 @@ package app
 
 import (
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"os"
 	"os/signal"
@@ -18,7 +19,7 @@ import (
 // panicHook is set only by tests, to prove Restore runs when Run panics.
 var panicHook func()
 
-// Run draws the rain until q, SIGINT or SIGTERM and returns the exit code.
+// Run draws the rain until q, SIGINT or SIGTERM (any key with -s) and returns the exit code.
 // The terminal is restored before it returns, also when a panic unwinds it, so
 // the caller can call os.Exit right after.
 func Run(cfg config.Config, in, out *os.File) int {
@@ -26,10 +27,10 @@ func Run(cfg config.Config, in, out *os.File) int {
 	// Restore (defers run last-in first-out), so a signal that arrives while
 	// the session is opening is queued instead of killing the process raw.
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGWINCH)
 	defer signal.Stop(sigs)
 
-	sess, err := terminal.Open(in, out)
+	sess, err := terminal.Open(in, out, cfg.Screensaver)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ccmatrix:", err)
 		return 1
@@ -62,6 +63,17 @@ func Run(cfg config.Config, in, out *os.File) int {
 	for {
 		select {
 		case sig := <-sigs:
+			if sig == syscall.SIGWINCH {
+				// Keep the old size if it cannot be read.
+				if w, h, err := sess.Size(); err == nil {
+					eng.Resize(w, h)
+					if _, err := io.WriteString(out, "\x1b[2J"); err != nil {
+						fmt.Fprintln(os.Stderr, "ccmatrix:", err)
+						return 1
+					}
+				}
+				continue
+			}
 			if sig == syscall.SIGINT {
 				return 130
 			}
@@ -72,7 +84,7 @@ func Run(cfg config.Config, in, out *os.File) int {
 			}
 			var exit bool
 			var code int
-			if speed, exit, code = handleKey(k, speed); exit {
+			if speed, exit, code = handleKey(k, speed, cfg.Screensaver); exit {
 				return code
 			}
 		case <-frame:
@@ -86,15 +98,16 @@ func Run(cfg config.Config, in, out *os.File) int {
 	}
 }
 
-// handleKey applies one key byte: a digit sets the speed, q exits 0, Ctrl-C
-// exits 130 (raw mode turns off ISIG, so it arrives as a byte) and any other
-// byte changes nothing.
-func handleKey(k byte, speed int) (newSpeed int, exit bool, code int) {
+// handleKey applies one input byte. Ctrl-C exits 130 (raw mode turns off
+// ISIG, so it arrives as a byte). With screensaver set any other byte exits 0,
+// which covers mouse reports since they arrive as escape sequences. Otherwise a
+// digit sets the speed, q exits 0 and any other byte changes nothing.
+func handleKey(k byte, speed int, screensaver bool) (newSpeed int, exit bool, code int) {
 	switch {
-	case k == 'q':
-		return speed, true, 0
 	case k == 0x03:
 		return speed, true, 130
+	case screensaver, k == 'q':
+		return speed, true, 0
 	case k >= '0' && k <= '9':
 		return int(k - '0'), false, 0
 	}

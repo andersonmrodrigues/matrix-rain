@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -18,6 +19,8 @@ import (
 const (
 	enterAlt = "\x1b[?1049h"
 	leaveAlt = "\x1b[?1049l"
+	mouseOn  = "\x1b[?1000h"
+	mouseOff = "\x1b[?1006l"
 )
 
 // TestHelperProcess is the child: it runs the real app on its stdin/stdout.
@@ -28,7 +31,7 @@ func TestHelperProcess(t *testing.T) {
 	if os.Getenv("CCMATRIX_HELPER_PANIC") == "1" {
 		panicHook = func() { panic("helper panic") }
 	}
-	cfg, _ := config.Parse(nil, os.Stderr)
+	cfg, _ := config.Parse(strings.Fields(os.Getenv("CCMATRIX_HELPER_ARGS")), os.Stderr)
 	os.Exit(Run(cfg, os.Stdin, os.Stdout))
 }
 
@@ -213,6 +216,77 @@ func TestRestoredOnExit(t *testing.T) {
 				t.Error("alternate screen left before it was entered")
 			}
 		})
+	}
+}
+
+func TestMouseReporting(t *testing.T) {
+	cases := []struct {
+		name string
+		args string
+		on   bool
+	}{
+		{"without -s", "", false},
+		{"with -s", "-s", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := start(t, nil, "CCMATRIX_HELPER_ARGS="+tc.args)
+			s.waitFor(enterAlt)
+			if tc.on {
+				s.waitFor(mouseOn)
+			}
+			s.master.WriteString("\x03")
+			s.wait()
+			out := s.out.String()
+			if got := strings.Contains(out, mouseOn); got != tc.on {
+				t.Errorf("mouse enable present = %v, want %v", got, tc.on)
+			}
+			if !strings.Contains(out, mouseOff) {
+				t.Error("output lacks the mouse disable sequence")
+			}
+		})
+	}
+}
+
+func TestScreensaverExitsOnInput(t *testing.T) {
+	for _, in := range []string{" ", "a", "5", "\r", "\x1b[A", "\x1b[<0;10;5M"} {
+		t.Run(fmt.Sprintf("%q", in), func(t *testing.T) {
+			s := start(t, nil, "CCMATRIX_HELPER_ARGS=-s")
+			s.waitFor(mouseOn)
+			s.master.WriteString(in)
+			if code := s.wait(); code != 0 {
+				t.Errorf("exit code %d, want 0", code)
+			}
+			if !strings.Contains(s.out.String(), mouseOff) {
+				t.Error("output lacks the mouse disable sequence")
+			}
+		})
+	}
+}
+
+func TestResizeKeepsRunning(t *testing.T) {
+	s := start(t, nil)
+	s.waitFor(enterAlt)
+	for _, sz := range []unix.Winsize{{Row: 40, Col: 120}, {Row: 10, Col: 20}, {Row: 1, Col: 1}, {Row: 0, Col: 0}, {Row: 24, Col: 80}} {
+		if err := unix.IoctlSetWinsize(int(s.slave.Fd()), unix.TIOCSWINSZ, &sz); err != nil {
+			t.Fatal(err)
+		}
+		s.cmd.Process.Signal(syscall.SIGWINCH)
+		select {
+		case <-s.exited:
+			t.Fatalf("process exited on resize to %dx%d", sz.Col, sz.Row)
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
+	if !strings.Contains(s.out.String(), "\x1b[2J") {
+		t.Error("screen not cleared")
+	}
+	s.master.WriteString("q")
+	if code := s.wait(); code != 0 {
+		t.Errorf("exit code %d, want 0", code)
+	}
+	if after := s.after; *after != *s.before {
+		t.Errorf("termios not restored:\n before %+v\n after  %+v", s.before, after)
 	}
 }
 
