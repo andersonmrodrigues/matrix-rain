@@ -36,7 +36,7 @@ ccmatrix [-s] [-u 0-10] [-C colour] [-r] [-c]
 
 | Flag | Meaning |
 | --- | --- |
-| `-s` | screensaver mode: exit on any key or mouse event |
+| `-s` | screensaver mode: exit on any key, mouse click or scroll |
 | `-u N` | update delay, an integer from 0 to 10 (default 4). The pause between frames is `N x 10ms`, so `0` is fastest |
 | `-C colour` | trail colour: `green` (default), `red`, `blue`, `white`, `yellow`, `cyan`, `magenta` or `black`. Heads stay white |
 | `-r` | rainbow trails, cycling through colours by position. Overrides `-C` |
@@ -48,7 +48,7 @@ Examples:
 ccmatrix                     # green rain, default speed
 ccmatrix -u 0 -C cyan        # as fast as possible, cyan trails
 ccmatrix -r -c               # rainbow katakana
-ccmatrix -s -u 2             # screensaver, any key or mouse movement exits
+ccmatrix -s -u 2             # screensaver, any key, click or scroll exits
 ```
 
 Invalid values (`-u 11`, `-C purple`) print an error to stderr and exit with code 2 before the terminal is touched.
@@ -60,7 +60,7 @@ Live keys:
 | `0`-`9` | set the speed, same scale as `-u` |
 | `q` | quit |
 | `Ctrl-C` | quit (exit code 130) |
-| any key or mouse event | quit, with `-s` only (without `-s` other keys are ignored) |
+| any key, mouse click or scroll | quit, with `-s` only (without `-s` other keys are ignored) |
 
 `SIGINT` and `SIGTERM` also quit (exit codes 130 and 143). Resizing the window redraws the rain for the new size.
 
@@ -107,4 +107,19 @@ window size changes.
 - Linux and macOS only. Windows is not supported.
 - A `black` trail is invisible on a black or dark background; only the white heads show.
 - Katakana alignment depends on the font. If it draws these glyphs wider than one cell, columns can look uneven.
-- Mouse support varies by terminal. In `-s`, terminals without mouse reporting still exit on any key.
+- Mouse support varies by terminal. In `-s`, terminals without mouse reporting still exit on any key. Only clicks and
+  scroll are reported (`ESC[?1000h`); plain pointer movement does not exit.
+
+### Mouse compatibility
+
+`-s` uses standard X10/SGR mouse reporting, which these terminals implement. They have not been verified by hand.
+
+| Terminal | Mouse reporting |
+| --- | --- |
+| xterm | standard X10/SGR |
+| GNOME Terminal / VTE | standard X10/SGR |
+| Kitty | standard X10/SGR |
+| Alacritty | standard X10/SGR |
+| iTerm2 | standard X10/SGR |
+| macOS Terminal.app | standard X10/SGR |
+| tmux | standard X10/SGR (when its `mouse` option is on, tmux consumes events itself) |

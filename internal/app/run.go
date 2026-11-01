@@ -27,8 +27,13 @@ func Run(cfg config.Config, in, out *os.File) int {
 	// Restore (defers run last-in first-out), so a signal that arrives while
 	// the session is opening is queued instead of killing the process raw.
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGWINCH)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigs)
+	// Separate from sigs so a pending resize cannot occupy the slot a
+	// SIGINT or SIGTERM needs.
+	winch := make(chan os.Signal, 1)
+	signal.Notify(winch, syscall.SIGWINCH)
+	defer signal.Stop(winch)
 
 	sess, err := terminal.Open(in, out, cfg.Screensaver)
 	if err != nil {
@@ -62,18 +67,16 @@ func Run(cfg config.Config, in, out *os.File) int {
 
 	for {
 		select {
-		case sig := <-sigs:
-			if sig == syscall.SIGWINCH {
-				// Keep the old size if it cannot be read.
-				if w, h, err := sess.Size(); err == nil {
-					eng.Resize(w, h)
-					if _, err := io.WriteString(out, "\x1b[2J"); err != nil {
-						fmt.Fprintln(os.Stderr, "ccmatrix:", err)
-						return 1
-					}
+		case <-winch:
+			// Keep the old size if it cannot be read.
+			if w, h, err := sess.Size(); err == nil {
+				eng.Resize(w, h)
+				if _, err := io.WriteString(out, "\x1b[2J"); err != nil {
+					fmt.Fprintln(os.Stderr, "ccmatrix:", err)
+					return 1
 				}
-				continue
 			}
+		case sig := <-sigs:
 			if sig == syscall.SIGINT {
 				return 130
 			}
