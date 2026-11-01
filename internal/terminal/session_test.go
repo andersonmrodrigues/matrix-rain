@@ -28,3 +28,16 @@ func TestEnterHidesCursorOnAltScreen(t *testing.T) {
 		}
 	}
 }
+
+func TestMouseSequences(t *testing.T) {
+	for _, seq := range []string{"\x1b[?1000l", "\x1b[?1006l"} {
+		if !strings.Contains(leave, seq) {
+			t.Errorf("leave lacks %q", seq)
+		}
+	}
+	for _, seq := range []string{"\x1b[?1000h", "\x1b[?1006h"} {
+		if strings.Contains(enter, seq) || !strings.Contains(mouseOn, seq) {
+			t.Errorf("%q must be only in mouseOn", seq)
+		}
+	}
+}

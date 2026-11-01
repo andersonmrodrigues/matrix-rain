@@ -162,3 +162,47 @@ func TestKatakanaGlyphs(t *testing.T) {
 		t.Error("no glyphs drawn")
 	}
 }
+
+func TestResize(t *testing.T) {
+	tests := []struct {
+		name         string
+		w, h         int
+		newW, newH   int
+		wantW, wantH int
+	}{
+		{"grow", 10, 5, 40, 20, 40, 20},
+		{"shrink", 40, 20, 10, 5, 10, 5},
+		{"tiny 1x1", 40, 20, 1, 1, 1, 1},
+		{"zero width", 40, 20, 0, 20, 0, 20},
+		{"zero height", 40, 20, 40, 0, 40, 0},
+		{"negative", 40, 20, -3, -1, 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := New(tt.w, tt.h, seeded(1))
+			for i := 0; i < 50; i++ {
+				e.Tick()
+			}
+			e.Resize(tt.newW, tt.newH)
+			if w, h := e.Size(); w != tt.wantW || h != tt.wantH {
+				t.Fatalf("size = %dx%d, want %dx%d", w, h, tt.wantW, tt.wantH)
+			}
+			if len(e.cols) != tt.wantW || len(e.cells) != tt.wantW*tt.wantH {
+				t.Fatalf("%d cols, %d cells for %dx%d", len(e.cols), len(e.cells), tt.wantW, tt.wantH)
+			}
+			for y := 0; y < tt.wantH; y++ {
+				for x := 0; x < tt.wantW; x++ {
+					if e.At(x, y).Kind != Blank {
+						t.Fatalf("cell (%d,%d) not blank after resize", x, y)
+					}
+				}
+			}
+			for i := 0; i < 200; i++ { // must not panic or draw outside the grid
+				e.Tick()
+			}
+			if got := e.At(tt.wantW, 0); got != (Cell{}) {
+				t.Errorf("cell outside width = %v", got)
+			}
+		})
+	}
+}

@@ -16,8 +16,11 @@ import (
 const (
 	// Alternate screen, hidden cursor, autowrap off, cleared.
 	enter = "\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J"
-	// Colours reset, autowrap on, cursor visible, leave alternate screen.
-	leave = "\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l"
+	// Mouse button reporting with SGR coordinates, used only by Open(mouse).
+	mouseOn = "\x1b[?1000h\x1b[?1006h"
+	// Mouse reporting off, colours reset, autowrap on, cursor visible, leave
+	// alternate screen. Always written, so a mode left on is never leaked.
+	leave = "\x1b[?1006l\x1b[?1000l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l"
 )
 
 // Session is an active full-screen terminal session.
@@ -29,8 +32,8 @@ type Session struct {
 }
 
 // Open puts in into raw mode and switches out to the alternate screen with a
-// hidden cursor. It fails if in or out is not a terminal.
-func Open(in, out *os.File) (*Session, error) {
+// hidden cursor, plus mouse reporting when mouse is set. It fails if in or out is not a terminal.
+func Open(in, out *os.File, mouse bool) (*Session, error) {
 	// A broken-pipe stdout would otherwise kill the process on SIGPIPE with
 	// termios unrestored; ignored, the write fails with EPIPE instead.
 	signal.Ignore(syscall.SIGPIPE)
@@ -46,15 +49,20 @@ func Open(in, out *os.File) (*Session, error) {
 		return nil, err
 	}
 	s := &Session{in: in, out: out, old: old}
-	if _, err := io.WriteString(out, enter); err != nil {
+	seq := enter
+	if mouse {
+		seq += mouseOn
+	}
+	if _, err := io.WriteString(out, seq); err != nil {
 		s.Restore()
 		return nil, err
 	}
 	return s, nil
 }
 
-// Restore leaves the alternate screen, shows the cursor, resets colours and
-// restores the saved termios. Only the first call does anything.
+// Restore turns mouse reporting off, leaves the alternate screen, shows the
+// cursor, resets colours and restores the saved termios. Only the first call
+// does anything.
 func (s *Session) Restore() {
 	s.once.Do(func() {
 		io.WriteString(s.out, leave)

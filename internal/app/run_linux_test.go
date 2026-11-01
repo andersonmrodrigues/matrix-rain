@@ -2,13 +2,17 @@ package app
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sys/unix"
 
@@ -18,6 +22,8 @@ import (
 const (
 	enterAlt = "\x1b[?1049h"
 	leaveAlt = "\x1b[?1049l"
+	mouseOn  = "\x1b[?1000h"
+	mouseOff = "\x1b[?1006l\x1b[?1000l"
 )
 
 // TestHelperProcess is the child: it runs the real app on its stdin/stdout.
@@ -28,7 +34,7 @@ func TestHelperProcess(t *testing.T) {
 	if os.Getenv("CCMATRIX_HELPER_PANIC") == "1" {
 		panicHook = func() { panic("helper panic") }
 	}
-	cfg, _ := config.Parse(nil, os.Stderr)
+	cfg, _ := config.Parse(strings.Fields(os.Getenv("CCMATRIX_HELPER_ARGS")), os.Stderr)
 	os.Exit(Run(cfg, os.Stdin, os.Stdout))
 }
 
@@ -213,6 +219,151 @@ func TestRestoredOnExit(t *testing.T) {
 				t.Error("alternate screen left before it was entered")
 			}
 		})
+	}
+}
+
+func TestMouseReporting(t *testing.T) {
+	cases := []struct {
+		name string
+		args string
+		on   bool
+	}{
+		{"without -s", "", false},
+		{"with -s", "-s", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := start(t, nil, "CCMATRIX_HELPER_ARGS="+tc.args)
+			s.waitFor(enterAlt)
+			if tc.on {
+				s.waitFor(mouseOn)
+			}
+			s.master.WriteString("\x03")
+			s.wait()
+			out := s.out.String()
+			if got := strings.Contains(out, mouseOn); got != tc.on {
+				t.Errorf("mouse enable present = %v, want %v", got, tc.on)
+			}
+			if !strings.Contains(out, mouseOff) {
+				t.Error("output lacks the mouse disable sequence")
+			}
+		})
+	}
+}
+
+func TestScreensaverExitsOnInput(t *testing.T) {
+	for _, in := range []string{" ", "a", "5", "\r", "\x1b[A", "\x1b[<0;10;5M"} {
+		t.Run(fmt.Sprintf("%q", in), func(t *testing.T) {
+			s := start(t, nil, "CCMATRIX_HELPER_ARGS=-s")
+			s.waitFor(mouseOn)
+			s.master.WriteString(in)
+			if code := s.wait(); code != 0 {
+				t.Errorf("exit code %d, want 0", code)
+			}
+			if !strings.Contains(s.out.String(), mouseOff) {
+				t.Error("output lacks the mouse disable sequence")
+			}
+		})
+	}
+}
+
+var (
+	csiSeq = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
+	cupSeq = regexp.MustCompile(`\x1b\[(\d+);(\d+)H`)
+)
+
+// frameAfterClear checks the output written after a screen clear: the first
+// frame must move the cursor to rows 1..rows in order and draw at most cols
+// cells on each. With no rows it must not move the cursor at all.
+func frameAfterClear(t *testing.T, after string, cols, rows int) {
+	t.Helper()
+	moves := cupSeq.FindAllStringSubmatchIndex(after, -1)
+	if rows == 0 {
+		if len(moves) != 0 {
+			t.Errorf("%dx%d: %d cursor moves, want none", cols, rows, len(moves))
+		}
+		return
+	}
+	for i, m := range moves {
+		row, _ := strconv.Atoi(after[m[2]:m[3]])
+		col, _ := strconv.Atoi(after[m[4]:m[5]])
+		if want := i%rows + 1; row != want {
+			t.Fatalf("%dx%d: move %d goes to row %d, want %d", cols, rows, i, row, want)
+		}
+		if col != 1 {
+			t.Errorf("%dx%d: move %d goes to column %d, want 1", cols, rows, i, col)
+		}
+		end := len(after)
+		if i+1 < len(moves) {
+			end = moves[i+1][0]
+		}
+		if n := utf8.RuneCountInString(csiSeq.ReplaceAllString(after[m[1]:end], "")); n > cols {
+			t.Errorf("%dx%d: row %d draws %d cells", cols, rows, row, n)
+		}
+	}
+	if len(moves) < rows {
+		t.Errorf("%dx%d: %d cursor moves, want at least %d", cols, rows, len(moves), rows)
+	}
+}
+
+func TestResizeKeepsRunning(t *testing.T) {
+	s := start(t, nil)
+	s.waitFor(enterAlt)
+	for _, sz := range []unix.Winsize{{Row: 40, Col: 120}, {Row: 10, Col: 20}, {Row: 1, Col: 1}, {Row: 0, Col: 0}, {Row: 24, Col: 80}} {
+		cols, rows := int(sz.Col), int(sz.Row)
+		before := len(s.out.String())
+		if err := unix.IoctlSetWinsize(int(s.slave.Fd()), unix.TIOCSWINSZ, &sz); err != nil {
+			t.Fatal(err)
+		}
+		s.cmd.Process.Signal(syscall.SIGWINCH)
+		// Wait for the clear, then for a whole frame (rows moves) after it.
+		var after string
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%dx%d: no clear and frame after resize; output %q", cols, rows, s.out.String()[before:])
+			}
+			out := s.out.String()[before:]
+			i := strings.Index(out, "\x1b[2J")
+			if i < 0 {
+				continue
+			}
+			after = out[i+len("\x1b[2J"):]
+			if rows == 0 {
+				// An empty frame has no moves; let one be drawn.
+				if strings.Count(after, "\x1b[0m") >= 2 {
+					break
+				}
+			} else if len(cupSeq.FindAllString(after, -1)) >= rows {
+				break
+			}
+		}
+		select {
+		case <-s.exited:
+			t.Fatalf("process exited on resize to %dx%d", cols, rows)
+		default:
+		}
+		frameAfterClear(t, after, cols, rows)
+	}
+	s.master.WriteString("q")
+	if code := s.wait(); code != 0 {
+		t.Errorf("exit code %d, want 0", code)
+	}
+	if after := s.after; *after != *s.before {
+		t.Errorf("termios not restored:\n before %+v\n after  %+v", s.before, after)
+	}
+}
+
+// A pending SIGWINCH must not make the following SIGTERM get dropped.
+func TestSigtermAfterResize(t *testing.T) {
+	s := start(t, nil)
+	s.waitFor(enterAlt)
+	s.cmd.Process.Signal(syscall.SIGWINCH)
+	s.cmd.Process.Signal(syscall.SIGTERM)
+	if code := s.wait(); code != 143 {
+		t.Errorf("exit code %d, want 143", code)
+	}
+	if after := s.after; *after != *s.before {
+		t.Errorf("termios not restored:\n before %+v\n after  %+v", s.before, after)
 	}
 }
 
